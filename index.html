@@ -344,7 +344,12 @@
      วิชาคณิตศาสตร์
     </div>
    </div><!-- Navigation -->
-   <div class="nav-buttons"><button class="nav-btn active" onclick="showPage('dashboard')"> <i class="fas fa-home"></i> หน้าหลัก </button> <button class="nav-btn" onclick="showPage('checkin')"> <i class="fas fa-check-circle"></i> เช็คการส่งงาน </button> <button class="nav-btn" onclick="showPage('statistics')"> <i class="fas fa-chart-bar"></i> สถิติการส่งงาน </button> <button class="nav-btn" onclick="showPage('students')"> <i class="fas fa-user-plus"></i> เพิ่มรายชื่อนักเรียน </button> <button class="nav-btn" onclick="showPage('settings')"> <i class="fas fa-cog"></i> ตั้งค่าการเชื่อมต่อ </button>
+   <div class="nav-buttons">
+    <button class="nav-btn active" data-page="dashboard" onclick="showPage('dashboard', this)"> <i class="fas fa-home"></i> หน้าหลัก </button>
+    <button class="nav-btn" data-page="checkin" onclick="showPage('checkin', this)"> <i class="fas fa-check-circle"></i> เช็คการส่งงาน </button>
+    <button class="nav-btn" data-page="statistics" onclick="showPage('statistics', this)"> <i class="fas fa-chart-bar"></i> สถิติการส่งงาน </button>
+    <button class="nav-btn" data-page="students" onclick="showPage('students', this)"> <i class="fas fa-user-plus"></i> เพิ่มรายชื่อนักเรียน </button>
+    <button class="nav-btn" data-page="settings" onclick="showPage('settings', this)"> <i class="fas fa-cog"></i> ตั้งค่าการเชื่อมต่อ </button>
    </div><!-- Dashboard Page -->
    <div id="dashboard" class="page active">
     <h2><i class="fas fa-tachometer-alt"></i> แดชบอร์ด</h2>
@@ -390,7 +395,7 @@
     </div>
     <div class="form-group"><label for="class-select">ชั้นเรียน:</label> <select id="class-select" class="form-control" onchange="loadStudents()"> <option value="">เลือกชั้นเรียน</option> <option value="ม.1/3">ม.1 ห้อง 1/3</option> <option value="ม.1/5">ม.1 ห้อง 1/5</option> <option value="ม.1/6">ม.1 ห้อง 1/6</option> </select>
     </div>
-    <div id="students-checkin" class="student-list"></div><button class="btn btn-success" onclick="saveAttendance()"> <i class="fas fa-save"></i> บันทึกการเช็ค </button>
+    <div id="students-checkin" class="student-list"></div><button id="save-att-btn" class="btn btn-success" onclick="saveAttendance()"> <i class="fas fa-save"></i> บันทึกการเช็ค </button>
    </div><!-- Statistics Page -->
    <div id="statistics" class="page">
     <h2><i class="fas fa-chart-bar"></i> สถิติการส่งงาน</h2>
@@ -420,11 +425,12 @@
       <div class="stat-label">
        ขาดส่ง
       </div>
-     </div>
+    </div>
     </div>
     <div class="chart-container">
      <canvas id="statsChart"></canvas>
     </div>
+    <div id="student-stats-list" style="margin-top: 20px;"></div>
    </div><!-- Students Page -->
    <div id="students" class="page">
     <h2><i class="fas fa-user-plus"></i> เพิ่มรายชื่อนักเรียน</h2>
@@ -521,29 +527,30 @@
             });
         }
 
-        // Navigation
-        function showPage(pageId) {
+        // Navigation (รับปุ่มที่คลิกมาด้วยเพื่อกำหนด active)
+        function showPage(pageId, btn) {
             // Hide all pages
-            document.querySelectorAll('.page').forEach(page => {
-                page.classList.remove('active');
-            });
-            
+            document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
             // Remove active class from all nav buttons
-            document.querySelectorAll('.nav-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
             // Show selected page
-            document.getElementById(pageId).classList.add('active');
-            
-            // Add active class to clicked button
-            event.target.classList.add('active');
-            
+            const pageEl = document.getElementById(pageId);
+            if (pageEl) pageEl.classList.add('active');
+
+            // Mark button active (ถ้าไม่ส่ง btn จะหาโดย data-page)
+            if (btn && btn.classList) {
+                btn.classList.add('active');
+            } else {
+                const fallback = document.querySelector(`.nav-btn[data-page="${pageId}"]`);
+                if (fallback) fallback.classList.add('active');
+            }
+
             // Load page-specific data
             if (pageId === 'statistics') {
                 loadStatistics();
             } else if (pageId === 'students') {
-                loadStudentsList();
+                if (typeof loadStudentsList === 'function') loadStudentsList();
             } else if (pageId === 'dashboard') {
                 updateDashboard();
             } else if (pageId === 'settings') {
@@ -716,7 +723,18 @@
                 action: 'getStudents'
             }, function(response) {
                 if (response.success) {
-                    students = response.data || [];
+                    // Normalize student objects to { id, name, class }
+                    const raw = response.data || [];
+                    students = raw.map(s => {
+                        const idVal = s.id ?? s.student_number ?? s.studentId ?? s.no ?? s.studentNo ?? s.number;
+                        const nameVal = s.name ?? s.student_name ?? s.fullname ?? s.studentName ?? s.displayName ?? '';
+                        const classVal = s.class ?? s.class_name ?? s.classroom ?? s.group ?? '';
+                        return {
+                            id: String(idVal ?? '').trim(),
+                            name: String(nameVal ?? '').trim(),
+                            class: String(classVal ?? '').trim()
+                        };
+                    });
                     updateDashboard();
                     addConnectionLog('connected', `โหลดข้อมูลนักเรียน ${students.length} คน`);
                 } else {
@@ -725,6 +743,38 @@
             }, function(error) {
                 addConnectionLog('disconnected', 'เกิดข้อผิดพลาดในการโหลดข้อมูลนักเรียน: ' + error);
             });
+        }
+        
+        // Create / update stats chart (Chart.js)
+        function updateChart(submitted, late, missing) {
+            try {
+                const canvas = document.getElementById('statsChart');
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                if (currentChart) {
+                    currentChart.destroy();
+                    currentChart = null;
+                }
+                currentChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['ส่งแล้ว', 'ส่งช้า', 'ขาดส่ง'],
+                        datasets: [{
+                            data: [submitted, late, missing],
+                            backgroundColor: ['#48bb78', '#ed8936', '#f56565']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'bottom' }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error('[updateChart] error', e);
+            }
         }
 
         // Load attendance data
@@ -769,265 +819,233 @@
             }
             
             container.innerHTML = classStudents.map(student => {
-                const currentStatus = attendance[today] && attendance[today][student.id] || '';
+                const currentStatus = (attendance[today] && attendance[today][student.id]) || '';
                 
                 return `
-                    <div class="student-item">
+                    <div class="student-item" data-student-id="${student.id}">
                         <div class="student-info">
                             ${student.id}. ${student.name}
                         </div>
                         <div class="status-buttons">
                             <button class="status-btn submitted ${currentStatus === 'submitted' ? 'active' : ''}" 
-                                    onclick="setStatus('${student.id}', 'submitted')">
+                                    onclick="setStatus('${student.id}', 'submitted', this)">
                                 <i class="fas fa-check"></i> ส่งแล้ว
                             </button>
                             <button class="status-btn late ${currentStatus === 'late' ? 'active' : ''}" 
-                                    onclick="setStatus('${student.id}', 'late')">
+                                    onclick="setStatus('${student.id}', 'late', this)">
                                 <i class="fas fa-clock"></i> ส่งช้า
                             </button>
                             <button class="status-btn missing ${currentStatus === 'missing' ? 'active' : ''}" 
-                                    onclick="setStatus('${student.id}', 'missing')">
+                                    onclick="setStatus('${student.id}', 'missing', this)">
                                 <i class="fas fa-times"></i> ขาดส่ง
                             </button>
                         </div>
                     </div>
                 `;
             }).join('');
+            
+            // update counts when switching class/date
+            updateDashboard();
         }
 
         // Set student status
-        function setStatus(studentId, status) {
-            const today = document.getElementById('check-date').value;
-            
-            if (!attendance[today]) {
-                attendance[today] = {};
-            }
-            
+        function setStatus(studentId, status, btn) {
+            const today = document.getElementById('check-date').value || new Date().toISOString().split('T')[0];
+
+            if (!attendance[today]) attendance[today] = {};
+
             attendance[today][studentId] = status;
-            
-            // Update UI
-            const studentItem = event.target.closest('.student-item');
-            const buttons = studentItem.querySelectorAll('.status-btn');
-            buttons.forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
+
+            // Update UI: find student item and toggle active class
+            let studentItem = null;
+            if (btn && btn.closest) {
+                studentItem = btn.closest('.student-item');
+            } else {
+                studentItem = document.querySelector(`.student-item[data-student-id="${studentId}"]`);
+            }
+
+            if (studentItem) {
+                const buttons = studentItem.querySelectorAll('.status-btn');
+                buttons.forEach(b => b.classList.remove('active'));
+                if (btn && btn.classList) btn.classList.add('active');
+                else {
+                    const sel = studentItem.querySelector(`.status-btn.${status}`);
+                    if (sel) sel.classList.add('active');
+                }
+            }
+
+            // อัพเดตตัวเลขเรียลไทม์
+            updateDashboard();
         }
 
-        // Save attendance
+        // Update dashboard numbers (total students, today submitted/late/missing)
+        function updateDashboard() {
+            try {
+                // total students
+                const totalEl = document.getElementById('total-students');
+                if (totalEl) totalEl.textContent = students.length || 0;
+
+                // counts for selected date
+                const date = document.getElementById('check-date').value || new Date().toISOString().split('T')[0];
+                const todayData = attendance[date] || {};
+                let submitted = 0, late = 0, missing = 0;
+                Object.values(todayData).forEach(s => {
+                    if (s === 'submitted') submitted++;
+                    else if (s === 'late') late++;
+                    else if (s === 'missing') missing++;
+                });
+
+                const subEl = document.getElementById('total-submitted');
+                const lateEl = document.getElementById('total-late');
+                const missEl = document.getElementById('total-missing');
+                if (subEl) subEl.textContent = submitted;
+                if (lateEl) lateEl.textContent = late;
+                if (missEl) missEl.textContent = missing;
+            } catch (e) {
+                console.error('[updateDashboard] error', e);
+            }
+        }
+
+        // Save attendance (send to Apps Script) and report status to user
         function saveAttendance() {
-            const selectedClass = document.getElementById('class-select').value;
-            const date = document.getElementById('check-date').value;
-            
-            if (!selectedClass || !date) {
-                Swal.fire('ข้อผิดพลาด', 'กรุณาเลือกชั้นเรียนและวันที่', 'error');
-                return;
-            }
-            
-            if (connectionStatus !== 'connected') {
-                Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้ เนื่องจากไม่ได้เชื่อมต่อกับ Google Sheets', 'error');
-                return;
-            }
-            
-            const attendanceData = attendance[date] || {};
-            
-            Swal.fire({
-                title: 'กำลังบันทึก...',
-                allowOutsideClick: false,
-                didOpen: () => {
-                    Swal.showLoading();
+            const btn = document.getElementById('save-att-btn');
+            const originalHtml = btn ? btn.innerHTML : null;
+            try {
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังบันทึก...';
                 }
-            });
-            
-            makeJSONPRequest(SCRIPT_URL, {
-                action: 'saveAttendance',
-                date: date,
-                class: selectedClass,
-                data: JSON.stringify(attendanceData)
-            }, function(response) {
-                if (response.success) {
-                    Swal.fire('สำเร็จ', 'บันทึกการเช็คเรียบร้อยแล้ว', 'success');
-                    updateDashboard();
-                    addConnectionLog('connected', `บันทึกการเช็ค ${selectedClass} วันที่ ${date}`);
-                } else {
-                    Swal.fire('ข้อผิดพลาด', response.message || 'เกิดข้อผิดพลาดในการบันทึก', 'error');
-                    addConnectionLog('disconnected', 'บันทึกการเช็คไม่สำเร็จ: ' + (response.message || 'Unknown error'));
+
+                const date = document.getElementById('check-date').value || new Date().toISOString().split('T')[0];
+                const className = document.getElementById('class-select').value;
+                if (!className) {
+                    Swal.fire({ icon: 'warning', title: 'เลือกชั้นเรียน', text: 'กรุณาเลือกชั้นเรียนก่อนบันทึก' });
+                    return;
                 }
-            }, function(error) {
-                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
-                addConnectionLog('disconnected', 'บันทึกการเช็คไม่สำเร็จ: ' + error);
-            });
+
+                const dataToSave = attendance[date] || {};
+                if (Object.keys(dataToSave).length === 0) {
+                    Swal.fire({ icon: 'warning', title: 'ไม่มีข้อมูล', text: 'ยังไม่มีการลงสถานะของนักเรียนสำหรับวันที่นี้' });
+                    return;
+                }
+
+                // Request payload: action, date, class, data (JSON string)
+                makeJSONPRequest(SCRIPT_URL, {
+                    action: 'saveAttendance',
+                    date: date,
+                    class: className,
+                    data: JSON.stringify(dataToSave)
+                }, function(response) {
+                    if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+                    if (response && response.success) {
+                        addConnectionLog('connected', `บันทึกการเช็ค ${date} ห้อง ${className} สำเร็จ`);
+                        Swal.fire({ icon: 'success', title: 'บันทึกแล้ว', text: 'บันทึกการเช็คเรียบร้อยแล้ว' });
+                    } else {
+                        const msg = (response && response.error) ? response.error : 'ไม่สามารถบันทึกได้';
+                        addConnectionLog('disconnected', `บันทึกไม่สำเร็จ: ${msg}`);
+                        Swal.fire({ icon: 'error', title: 'บันทึกไม่สำเร็จ', text: msg });
+                    }
+                }, function(error) {
+                    if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+                    addConnectionLog('disconnected', 'เกิดข้อผิดพลาดขณะบันทึก: ' + error);
+                    Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: 'เกิดข้อผิดพลาดขณะบันทึก: ' + error });
+                });
+            } catch (e) {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+                console.error('[saveAttendance] exception', e);
+                addConnectionLog('disconnected', 'Exception ขณะบันทึก: ' + (e && e.message));
+                Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: 'เกิดข้อผิดพลาดขณะบันทึก' });
+            }
         }
 
-        // Add student
-        function addStudent(event) {
-            event.preventDefault();
-            
-            const studentId = document.getElementById('student-id').value;
-            const studentName = document.getElementById('student-name').value;
-            const studentClass = document.getElementById('student-class').value;
-            
-            if (connectionStatus !== 'connected') {
-                Swal.fire('ข้อผิดพลาด', 'ไม่สามารถเพิ่มนักเรียนได้ เนื่องจากไม่ได้เชื่อมต่อกับ Google Sheets', 'error');
-                return;
-            }
-            
-            // Check for duplicate ID in same class
-            const duplicate = students.find(s => s.id == studentId && s.class === studentClass);
-            if (duplicate) {
-                Swal.fire('ข้อผิดพลาด', 'เลขที่นี้มีอยู่แล้วในชั้นเรียนนี้', 'error');
-                return;
-            }
-            
-            Swal.fire({
-                title: 'กำลังเพิ่มนักเรียน...',
-                allowOutsideClick: false,
-                didOpen: () => {
-                    Swal.showLoading();
-                }
-            });
-            
-            makeJSONPRequest(SCRIPT_URL, {
-                action: 'addStudent',
-                id: studentId,
-                name: studentName,
-                class: studentClass
-            }, function(response) {
-                if (response.success) {
-                    Swal.fire('สำเร็จ', 'เพิ่มนักเรียนเรียบร้อยแล้ว', 'success');
-                    document.getElementById('student-form').reset();
-                    loadStudentsData();
-                    loadStudentsList();
-                    addConnectionLog('connected', `เพิ่มนักเรียน ${studentName} (${studentId}) ชั้น ${studentClass}`);
-                } else {
-                    Swal.fire('ข้อผิดพลาด', response.message || 'เกิดข้อผิดพลาดในการเพิ่มนักเรียน', 'error');
-                    addConnectionLog('disconnected', 'เพิ่มนักเรียนไม่สำเร็จ: ' + (response.message || 'Unknown error'));
-                }
-            }, function(error) {
-                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
-                addConnectionLog('disconnected', 'เพิ่มนักเรียนไม่สำเร็จ: ' + error);
-            });
-        }
-
-        // Load students list
-        function loadStudentsList() {
-            const container = document.getElementById('students-list');
-            
-            if (students.length === 0) {
-                container.innerHTML = '<p>ยังไม่มีรายชื่อนักเรียน</p>';
-                return;
-            }
-            
-            const groupedStudents = students.reduce((acc, student) => {
-                if (!acc[student.class]) {
-                    acc[student.class] = [];
-                }
-                acc[student.class].push(student);
-                return acc;
-            }, {});
-            
-            container.innerHTML = Object.keys(groupedStudents).map(className => {
-                const classStudents = groupedStudents[className].sort((a, b) => a.id - b.id);
-                
-                return `
-                    <div style="margin-bottom: 30px;">
-                        <h3>${className}</h3>
-                        ${classStudents.map(student => `
-                            <div class="student-item">
-                                <div class="student-info">
-                                    ${student.id}. ${student.name}
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // Load statistics
+        // Load statistics and render per-student table + chart
         function loadStatistics() {
-            const selectedClass = document.getElementById('stats-class').value;
-            
+            const selectedClass = document.getElementById('stats-class') ? document.getElementById('stats-class').value : '';
+            const container = document.getElementById('student-stats-list');
+            // reset
             if (!selectedClass) {
                 document.getElementById('stats-submitted').textContent = '0';
                 document.getElementById('stats-late').textContent = '0';
                 document.getElementById('stats-missing').textContent = '0';
+                if (container) container.innerHTML = '<p>เลือกชั้นเรียนเพื่อดูสถิติรายบุคคล</p>';
+                if (currentChart) { currentChart.destroy(); currentChart = null; }
                 return;
             }
-            
+
             const classStudents = students.filter(s => s.class === selectedClass);
+            if (!classStudents.length) {
+                if (container) container.innerHTML = '<p>ไม่พบนักเรียนในชั้นเรียนนี้</p>';
+                document.getElementById('stats-submitted').textContent = '0';
+                document.getElementById('stats-late').textContent = '0';
+                document.getElementById('stats-missing').textContent = '0';
+                if (currentChart) { currentChart.destroy(); currentChart = null; }
+                return;
+            }
+
+            // tally
             let submitted = 0, late = 0, missing = 0;
-            
-            // Count statistics from all dates
-            Object.values(attendance).forEach(dayData => {
-                classStudents.forEach(student => {
-                    const status = dayData[student.id];
-                    if (status === 'submitted') submitted++;
-                    else if (status === 'late') late++;
-                    else if (status === 'missing') missing++;
+            const perStudent = {};
+            classStudents.forEach(s => perStudent[s.id] = { submitted:0, late:0, missing:0, total:0, name: s.name, id: s.id });
+
+            Object.values(attendance || {}).forEach(day => {
+                if (!day) return;
+                classStudents.forEach(s => {
+                    const status = day[s.id];
+                    if (!status) return;
+                    perStudent[s.id].total++;
+                    if (status === 'submitted') { perStudent[s.id].submitted++; submitted++; }
+                    else if (status === 'late') { perStudent[s.id].late++; late++; }
+                    else if (status === 'missing') { perStudent[s.id].missing++; missing++; }
                 });
             });
-            
+
             document.getElementById('stats-submitted').textContent = submitted;
             document.getElementById('stats-late').textContent = late;
             document.getElementById('stats-missing').textContent = missing;
-            
-            // Update chart
+
+            // update chart
             updateChart(submitted, late, missing);
+
+            // build table
+            const rows = classStudents.slice().sort((a,b) => Number(a.id) - Number(b.id)).map(s => {
+                const p = perStudent[s.id] || { submitted:0, late:0, missing:0, total:0, name:s.name, id:s.id };
+                return `
+                    <tr>
+                        <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${escapeHtml(p.id)}</td>
+                        <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(p.name)}</td>
+                        <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${p.submitted}</td>
+                        <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${p.late}</td>
+                        <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${p.missing}</td>
+                        <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${p.total}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            const tableHtml = `
+                <div style="overflow:auto; background:#fff; padding:12px; border-radius:8px; border:1px solid #eee;">
+                    <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
+                        <thead>
+                            <tr style="background:#f5f7fa;">
+                                <th style="padding:10px;border-bottom:2px solid #ddd;text-align:center">เลขที่</th>
+                                <th style="padding:10px;border-bottom:2px solid #ddd;text-align:left">ชื่อ</th>
+                                <th style="padding:10px;border-bottom:2px solid #ddd;text-align:center">ส่งแล้ว</th>
+                                <th style="padding:10px;border-bottom:2px solid #ddd;text-align:center">ส่งช้า</th>
+                                <th style="padding:10px;border-bottom:2px solid #ddd;text-align:center">ขาดส่ง</th>
+                                <th style="padding:10px;border-bottom:2px solid #ddd;text-align:center">รวม</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+
+            if (container) container.innerHTML = tableHtml;
         }
 
-        // Update chart
-        function updateChart(submitted, late, missing) {
-            const ctx = document.getElementById('statsChart').getContext('2d');
-            
-            if (currentChart) {
-                currentChart.destroy();
-            }
-            
-            currentChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['ส่งแล้ว', 'ส่งช้า', 'ขาดส่ง'],
-                    datasets: [{
-                        data: [submitted, late, missing],
-                        backgroundColor: ['#48bb78', '#ed8936', '#f56565'],
-                        borderWidth: 2,
-                        borderColor: '#333'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                font: {
-                                    family: 'Sarabun',
-                                    size: 14
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        // Update dashboard
-        function updateDashboard() {
-            const today = new Date().toISOString().split('T')[0];
-            const todayAttendance = attendance[today] || {};
-            
-            let todaySubmitted = 0, todayLate = 0, todayMissing = 0;
-            
-            Object.values(todayAttendance).forEach(status => {
-                if (status === 'submitted') todaySubmitted++;
-                else if (status === 'late') todayLate++;
-                else if (status === 'missing') todayMissing++;
-            });
-            
-            document.getElementById('total-students').textContent = students.length;
-            document.getElementById('total-submitted').textContent = todaySubmitted;
-            document.getElementById('total-late').textContent = todayLate;
-            document.getElementById('total-missing').textContent = todayMissing;
+        // helper: escape HTML
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
         }
     </script>
  <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9967c94bc3532dc0',t:'MTc2MTc5NDUyNi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
